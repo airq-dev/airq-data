@@ -17,15 +17,19 @@ if [ ! -f "$DB_FILE" ]; then
 fi
 
 timestamp=$(date +%s)
-rm -rf /tm/airq
+rm -rf /tmp/airq
 tmpdir="/tmp/airq/build-$timestamp"
 mkdir -p $tmpdir
 cd $tmpdir
 
-git clone git@github.com:airq-dev/airq.git
+eval `ssh-agent -s`
+ssh-add /home/ec2-user/.ssh/id_rsa
+
+git clone -v git@github.com:airq-dev/airq.git
 cd airq
+git branch -D purpleair_sync || true
 git checkout -b purpleair_sync
 cp "$CWD/airq.db" app/airq/providers/purpleair.db
-git add -a
+git add -A
 git commit -m "Updating purpleair database"
-git push origin purpleair_sync
+git push -f origin purpleair_sync
