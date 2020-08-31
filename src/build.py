@@ -5,7 +5,6 @@ import math
 import os
 import requests
 import sqlite3
-import shutil
 import textwrap
 import zipfile
 
@@ -237,7 +236,6 @@ def generate():
     create_db()
     create_zipcodes()
     create_sensors()
-    shutil.copyfile("airq.db", "../app/airq/providers/purpleair.db")
 
 
 if __name__ == "__main__":
