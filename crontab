@@ -1,0 +1,2 @@
+0 0 * * * /home/ec2-user/airq-data/src/push.sh > /home/ec2-user/backup.log 2>&1
+

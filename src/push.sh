@@ -2,19 +2,18 @@ set -e
 
 DB_FILE=airq.db
 CWD=`pwd`
-if [ ! -f "$DB_FILE" ]; then
-    if [ ! -d ".venv" ]; then 
-        echo "Creating virtual environment...\n"
-        python3 -m venv .venv
-    fi
 
-    echo "Ensuring requirements are up to date...\n"
-    source .venv/bin/activate
-    python3 -m pip install -r requirements.txt
-
-    echo "Building the database...\n"
-    python3 build.py
+if [ ! -d "/home/ec2-user/airq-data/src/.venv" ]; then 
+    echo "Creating virtual environment...\n"
+    python3 -m venv /home/ec2-user/airq-data/src/.venv
 fi
+
+echo "Ensuring requirements are up to date...\n"
+source .venv/bin/activate
+python3 -m pip install -r /home/ec2-user/airq-data/src/requirements.txt
+
+echo "Building the database...\n"
+python3 /home/ec2-user/airq-data/src/build.py
 
 timestamp=$(date +%s)
 rm -rf /tmp/airq
