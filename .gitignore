@@ -1,0 +1,6 @@
+.venv
+.vscode
+*.zip
+*.json
+*.db
+*.pem
