@@ -150,37 +150,6 @@ def create_zipcodes():
         conn.commit()
 
 
-def find_zipcode(lat, lon, gh):
-    conn = get_connection()
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    while gh:
-        sql = textwrap.dedent(
-            """
-            SELECT id, latitude, longitude
-            FROM zipcodes
-            WHERE {}
-            """.format(
-                " AND ".join([f"geohash_bit_{i + 1}=?" for i, _ in enumerate(gh)])
-            )
-        )
-        cursor.execute(sql, tuple(gh))
-        rows = cursor.fetchall()
-        if rows:
-            conn.close()
-            closest_zip = None
-            smallest_distance = float("inf")
-            for row in rows:
-                distance = haversine_distance(
-                    lon, lat, row["longitude"], row["latitude"]
-                )
-                if distance <= 25 and smallest_distance > distance:
-                    closest_zip = row["id"]
-                    smallest_distance = distance
-            return closest_zip
-        gh = gh[:-1]
-
-
 def get_purpleair_data():
     if not os.path.exists("purpleair.json"):
         resp = requests.get("https://www.purpleair.com/json")
@@ -201,6 +170,19 @@ def create_sensors():
         if result.get("ParentID"):
             # I don't know what this means but feel it's probably
             # best to skip?
+            continue
+        if result.get("LastSeen") < datetime.datetime.now() - (24 * 60 * 60):
+            # Out of date / maybe dead
+            continue
+        pm25 = result.get('PM2_5Value')
+        if not pm25:
+            continue
+        try:
+            pm25 = float(pm25)
+        except (TypeError, ValueError):
+            continue
+        if pm25 < 0 or pm25 > 500:
+            # Something is very wrong
             continue
         latitude = result.get("Lat")
         longitude = result.get("Lon")
