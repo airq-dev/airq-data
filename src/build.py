@@ -101,6 +101,20 @@ def create_db():
     """
         )
     )
+    cursor.execute(
+        textwrap.dedent(
+            """
+        CREATE TABLE sensors_zipcodes (
+            sensor_id INTEGER NOT NULL,
+            zipcode_id INTEGER NOT NULL,
+            distance REAL NOT NULL,
+            PRIMARY KEY(sensor_id, zipcode_id),
+            FOREIGN KEY(sensor_id) REFERENCES sensors(id),
+            FOREIGN KEY(zipcode_id) REFERENCES zipcodes(id),
+        );
+    """
+        )
+    )
     conn.commit()
 
 
@@ -121,6 +135,42 @@ def get_zipcodes_from_geonames():
                 # Skip army prefixes
                 if not place_name.startswith(("FPO", "APO")):
                     yield zipcode, latitude, longitude
+
+
+def create_sensors_zipcodes(cursor, zipcode_id, zipcode, latitude, longitude, gh):
+    # Get up to 25 sensors within a max of 25km along with their distances
+    gh = list(gh)
+    sensors = set()
+    while gh:
+        sql = "SELECT id, latitude, longitude FROM sensors WHERE {}".format(
+            " AND ".join([f"geohash_bit_{i}=?" for i in range(len(gh))])
+        )
+        if sensors:
+            sql += " AND id NOT IN ({})".format(", ".join(["?" for _ in sensors]))
+        cursor.execute(
+            "SELECT id, latitude, longitude FROM sensors WHERE {}".format(
+                " AND ".join([f"geohash_bit_{i}=?" for i in range(len(gh))])
+            ),
+            tuple(gh) + tuple(sensors),
+        )
+        new_sensors = sorted(
+            [
+                r['id'],
+                haversine_distance(longitude, latitude, r['latitude'], r['longitude'])
+            ],
+            key=lambda s: s[1]
+        )
+        for sensor_id, distance in new_sensors:
+            if distance >= 25:
+                return
+            if len(sensors) >= 25:
+                return
+            sensors.add(sensor_id)
+            cursor.execute(
+                "INSERT INTO sensors_zipcodes VALUES (?, ?, ?)",
+                (sensor_id, zipcode_id, distance)
+            )
+        gh.pop()
 
 
 def create_zipcodes():
@@ -145,6 +195,15 @@ def create_zipcodes():
                 round(float(longitude), ndigits=6),
                 *list(gh),
             ),
+        )
+        zipcode_id = cursor.lastrowid
+        create_sensors_zipcodes(
+            cursor,
+            zipcode_id,
+            zipcode,
+            latitude,
+            longitude,
+            gh
         )
         conn.commit()
 
