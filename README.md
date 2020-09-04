@@ -7,4 +7,4 @@ This repository is used to build the [Purpleair](https://www2.purpleair.com/) da
 
 We also build a table containing data about zipcodes, using public data from Geonames. We store the geohash of each zipcode, allowing us to perform a reverse lookup when a user inputs a zipcode: we determine its geohash and then determine the nearby sensors. Then we make an API call to Purpleair to determine the average air quality.
 
-This repository runs a cron once per day to rebuild the database described above and push it to the airq repository. It will then be auto-merged if tests pass, triggering a new deploy.
+This repository runs a cron once per week to rebuild the database described above and push it to the airq repository.
