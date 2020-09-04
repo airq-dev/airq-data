@@ -1,3 +1,4 @@
+import datetime
 import decimal
 import geohash
 import json
@@ -58,7 +59,6 @@ def create_db():
             """
         CREATE TABLE sensors (
             id INTEGER PRIMARY KEY,
-            zipcode INTEGER,
             latitude REAL NOT NULL,
             longitude REAL NOT NULL,
             geohash_bit_1 VARCHAR NOT NULL,
@@ -72,8 +72,7 @@ def create_db():
             geohash_bit_9 VARCHAR NOT NULL,
             geohash_bit_10 VARCHAR NOT NULL,
             geohash_bit_11 VARCHAR NOT NULL,
-            geohash_bit_12 VARCHAR NOT NULL,
-            FOREIGN KEY(zipcode) REFERENCES zipcodes(id)
+            geohash_bit_12 VARCHAR NOT NULL
         );
     """
         )
@@ -171,7 +170,7 @@ def create_sensors():
             # I don't know what this means but feel it's probably
             # best to skip?
             continue
-        if result.get("LastSeen") < datetime.datetime.now() - (24 * 60 * 60):
+        if result.get("LastSeen") < datetime.datetime.now().timestamp() - (24 * 60 * 60):
             # Out of date / maybe dead
             continue
         pm25 = result.get('PM2_5Value')
@@ -189,19 +188,17 @@ def create_sensors():
         if not latitude or not longitude:
             continue
         gh = geohash.encode(latitude, longitude)
-        zipcode_id = find_zipcode(latitude, longitude, gh)
         conn = get_connection()
         cursor = conn.cursor()
         cursor.execute(
             textwrap.dedent(
                 """
             INSERT INTO sensors
-            VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
             ),
             (
                 result["ID"],
-                zipcode_id,
                 round(float(latitude), ndigits=6),
                 round(float(longitude), ndigits=6),
                 *list(gh),
@@ -216,8 +213,8 @@ def create_sensors():
 def generate():
     refresh_data()
     create_db()
-    create_zipcodes()
     create_sensors()
+    create_zipcodes()
 
 
 if __name__ == "__main__":

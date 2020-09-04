@@ -44,7 +44,7 @@ git clone -v git@github.com:airq-dev/airq.git
 cd airq
 git branch -D purpleair_sync || true
 git checkout -b purpleair_sync
-cp "$CWD/airq.db" app/airq/providers/purpleair.db
+cp "$CWD/airq.db" app/airq/purpleair.db
 git add -A
 git commit -m "Updating purpleair database"
 git push -f origin purpleair_sync
