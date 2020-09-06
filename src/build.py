@@ -12,7 +12,7 @@ import zipfile
 
 def haversine_distance(lon1, lat1, lon2, lat2):
     """
-    Calculate the great circle distance between two points 
+    Calculate the great circle distance between two points
     on the earth (specified in decimal degrees)
     """
     # convert decimal degrees to radians
@@ -81,8 +81,9 @@ def create_db():
         textwrap.dedent(
             """
         CREATE TABLE zipcodes (
-            id INTEGER PRIMARY KEY,
-            zipcode VARCHAR UNIQUE,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            city_id INTEGER NOT NULL,
+            zipcode VARCHAR NOT NULL UNIQUE,
             latitude REAL NOT NULL,
             longitude REAL NOT NULL,
             geohash_bit_1 VARCHAR NOT NULL,
@@ -96,7 +97,19 @@ def create_db():
             geohash_bit_9 VARCHAR NOT NULL,
             geohash_bit_10 VARCHAR NOT NULL,
             geohash_bit_11 VARCHAR NOT NULL,
-            geohash_bit_12 VARCHAR NOT NULL
+            geohash_bit_12 VARCHAR NOT NULL,
+            FOREIGN KEY(city_id) REFERENCES city(id)
+        );
+    """
+        )
+    )
+    cursor.execute(
+        textwrap.dedent(
+            """
+        CREATE TABLE cities (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name VARCHAR NOT NULL,
+            state_code VARCHAR NOT NULL
         );
     """
         )
@@ -110,7 +123,7 @@ def create_db():
             distance REAL NOT NULL,
             PRIMARY KEY(sensor_id, zipcode_id),
             FOREIGN KEY(sensor_id) REFERENCES sensors(id),
-            FOREIGN KEY(zipcode_id) REFERENCES zipcodes(id),
+            FOREIGN KEY(zipcode_id) REFERENCES zipcodes(id)
         );
     """
         )
@@ -129,12 +142,15 @@ def get_zipcodes_from_geonames():
             for line in fd.readlines():
                 fields = line.decode().strip().split("\t")
                 zipcode = fields[1].strip()
+                city_name = fields[2].strip()
+                state_code = fields[4].strip()
+
                 latitude = decimal.Decimal(fields[9].strip())
                 longitude = decimal.Decimal(fields[10].strip())
                 place_name = fields[2].strip()
                 # Skip army prefixes
                 if not place_name.startswith(("FPO", "APO")):
-                    yield zipcode, latitude, longitude
+                    yield zipcode, city_name, state_code, latitude, longitude
 
 
 def create_sensors_zipcodes(cursor, zipcode_id, zipcode, latitude, longitude, gh):
@@ -143,22 +159,17 @@ def create_sensors_zipcodes(cursor, zipcode_id, zipcode, latitude, longitude, gh
     sensors = set()
     while gh:
         sql = "SELECT id, latitude, longitude FROM sensors WHERE {}".format(
-            " AND ".join([f"geohash_bit_{i}=?" for i in range(len(gh))])
+            " AND ".join([f"geohash_bit_{i + 1}=?" for i in range(len(gh))])
         )
         if sensors:
             sql += " AND id NOT IN ({})".format(", ".join(["?" for _ in sensors]))
-        cursor.execute(
-            "SELECT id, latitude, longitude FROM sensors WHERE {}".format(
-                " AND ".join([f"geohash_bit_{i}=?" for i in range(len(gh))])
-            ),
-            tuple(gh) + tuple(sensors),
-        )
+        cursor.execute(sql, tuple(gh) + tuple(sensors))
         new_sensors = sorted(
             [
-                r['id'],
-                haversine_distance(longitude, latitude, r['latitude'], r['longitude'])
+                (r[0], haversine_distance(longitude, latitude, r[2], r[1]))
+                for r in cursor.fetchall()
             ],
-            key=lambda s: s[1]
+            key=lambda s: s[1],
         )
         for sensor_id, distance in new_sensors:
             if distance >= 25:
@@ -168,43 +179,53 @@ def create_sensors_zipcodes(cursor, zipcode_id, zipcode, latitude, longitude, gh
             sensors.add(sensor_id)
             cursor.execute(
                 "INSERT INTO sensors_zipcodes VALUES (?, ?, ?)",
-                (sensor_id, zipcode_id, distance)
+                (sensor_id, zipcode_id, distance),
             )
         gh.pop()
 
 
+def create_city(cursor, city_name, state_code):
+    cursor.execute(
+        "SELECT id FROM cities WHERE name=? AND state_code=?", (city_name, state_code)
+    )
+    row = cursor.fetchone()
+    if row:
+        return row[0]
+    cursor.execute(
+        "INSERT INTO cities(name, state_code) VALUES(?, ?)", (city_name, state_code)
+    )
+    return cursor.lastrowid
+
+
 def create_zipcodes():
     print("Creating zipcodes")
-    for i, (zipcode, latitude, longitude) in enumerate(get_zipcodes_from_geonames()):
+    for i, (zipcode, city_name, state_code, latitude, longitude) in enumerate(
+        get_zipcodes_from_geonames()
+    ):
         if i % 50 == 0:
             print(f"Created {i} zipcodes")
-        gh = geohash.encode(latitude, longitude)
         conn = get_connection()
         cursor = conn.cursor()
+        city_id = create_city(cursor, city_name, state_code)
+        gh = geohash.encode(latitude, longitude)
         cursor.execute(
             textwrap.dedent(
                 """
-            INSERT INTO zipcodes 
-            VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """
+                INSERT INTO zipcodes(zipcode, city_id, latitude, longitude, {}) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """.format(
+                    ", ".join([f"geohash_bit_{i}" for i in range(1, 13)])
+                )
             ),
             (
-                i,
                 zipcode,
+                city_id,
                 round(float(latitude), ndigits=6),
                 round(float(longitude), ndigits=6),
                 *list(gh),
             ),
         )
         zipcode_id = cursor.lastrowid
-        create_sensors_zipcodes(
-            cursor,
-            zipcode_id,
-            zipcode,
-            latitude,
-            longitude,
-            gh
-        )
+        create_sensors_zipcodes(cursor, zipcode_id, zipcode, latitude, longitude, gh)
         conn.commit()
 
 
@@ -229,10 +250,12 @@ def create_sensors():
             # I don't know what this means but feel it's probably
             # best to skip?
             continue
-        if result.get("LastSeen") < datetime.datetime.now().timestamp() - (24 * 60 * 60):
+        if result.get("LastSeen") < datetime.datetime.now().timestamp() - (
+            24 * 60 * 60
+        ):
             # Out of date / maybe dead
             continue
-        pm25 = result.get('PM2_5Value')
+        pm25 = result.get("PM2_5Value")
         if not pm25:
             continue
         try:
